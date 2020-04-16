@@ -18,6 +18,10 @@ module TopologicalInventory
           @errors_counter&.observe(1)
         end
 
+        def record_kafka_topic_length
+          @persister_topic_length&.observe(get_topic_length)
+        end
+
         def stop_server
           @server&.stop
         end
@@ -37,7 +41,14 @@ module TopologicalInventory
           PrometheusExporter::Metric::Base.default_prefix = "topological_inventory_ansible_tower_collector_"
 
           @errors_counter = PrometheusExporter::Metric::Counter.new("errors_total", "total number of collector errors")
+          @persister_topic_length = PrometheusExporter::Metric::Counter.new("persister_topic_length", "the length of the persister queue")
+
           @server.collector.register_metric(@errors_counter)
+          @server.collector.register_metric(@persister_topic_length)
+        end
+
+        def get_topic_length
+          # TODO: find out how to do this.
         end
       end
     end

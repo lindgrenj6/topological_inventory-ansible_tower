@@ -100,6 +100,7 @@ module TopologicalInventory::AnsibleTower
       logger.info("[START] Sweeping inactive records for #{sweep_scope} with :refresh_state_uuid => '#{refresh_state_uuid}'...")
       sweep_inventory(inventory_name, schema_name, refresh_state_uuid, total_parts, sweep_scope, refresh_state_started_at)
       logger.info("[END] Sweeping inactive records for #{sweep_scope} with :refresh_state_uuid => '#{refresh_state_uuid}'")
+      metrics.record_kafka_topic_length
     rescue => e
       metrics.record_error
       logger.error("Error collecting: #{entity_type} :refresh_state_uuid => #{refresh_state_uuid}, message => #{e.message} #{e.backtrace.join("\n")}")
