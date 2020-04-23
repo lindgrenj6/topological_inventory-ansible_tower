@@ -3,13 +3,11 @@ module TopologicalInventory
     module Operations
       module Core
         module ServiceOrderMixin
-          SLEEP_POLL = 10
-          POLL_TIMEOUT = 1800
-
-
           def order
             task_id, service_offering_id, service_plan_id, order_params = params.values_at(
               "task_id", "service_offering_id", "service_plan_id", "order_params")
+
+            logger.info("ServiceOffering#order: Task(id: #{task_id}), ServiceOffering(:id #{service_offering_id}): Order method entered")
 
             update_task(task_id, :state => "running", :status => "ok")
 
@@ -22,86 +20,30 @@ module TopologicalInventory
 
             job_type = parse_svc_offering_type(service_offering)
 
-            logger.info("Ordering #{service_offering.name}...")
+            logger.info("ServiceOffering#order: Task(id: #{task_id}): Ordering ServiceOffering(id: #{service_offering.id}, source_ref: #{service_offering.source_ref}): Launching Job...")
             job = client.order_service(job_type, service_offering.source_ref, order_params)
-            logger.info("Ordering #{service_offering.name}...Complete")
+            logger.info("ServiceOffering#order: Task(id: #{task_id}): Ordering ServiceOffering(id: #{service_offering.id}, source_ref: #{service_offering.source_ref}): Job(:id #{job&.id}) has launched.")
 
-            poll_order_complete_thread(task_id, source_id, job)
-          rescue StandardError => err
-            logger.error("[Task #{task_id}] Ordering error: #{err}\n#{err.backtrace.join("\n")}")
-            update_task(task_id, :state => "completed", :status => "error", :context => {:error => err.to_s})
-          end
-
-          def poll_order_complete_thread(task_id, source_id, job)
-            Thread.new do
-              begin
-                poll_order_complete(task_id, source_id, job)
-              rescue StandardError => err
-                logger.error("[Task #{task_id}] Waiting for complete: #{err}\n#{err.backtrace.join("\n")}")
-                update_task(task_id, :state => "completed", :status => "warn", :context => {:error => err.to_s})
-              end
-            end
-          end
-
-          # @param job [AnsibleTowerClient::Job]
-          def poll_order_complete(task_id, source_id, job)
             context = {
               :service_instance => {
-                :source_id  => source_id,
-                :source_ref => job.id
+                :job_status => job.status,
+                :url => client.job_external_url(job)
               }
             }
+            update_task(task_id,
+                        :context           => context,
+                        :state             => "running",
+                        :status            => client.job_status_to_task_status(job.status),
+                        :source_id         => source_id.to_s,
+                        :target_source_ref => job.id.to_s,
+                        :target_type       => "ServiceInstance")
 
-            client = ansible_tower_client(source_id, task_id, identity)
-            job = client.wait_for_job_finished(task_id, job, context)
-            context[:remote_status] = job.status
-            task_status = client.job_status_to_task_status(job.status)
-
-            svc_instance = wait_for_service_instance(source_id, job.id)
-            if svc_instance.present?
-              context[:service_instance][:id]  = svc_instance.id
-              context[:service_instance][:url] = svc_instance.external_url
-            else
-              # If we failed to find the service_instance in the topological-inventory-api
-              # within 30 minutes then something went wrong.
-              task_status     = "error"
-              context[:error] = "Failed to find ServiceInstance by source_id [#{source_id}] source_ref [#{job.id}]"
-            end
-
-            update_task(task_id, :state => "completed", :status => task_status, :context => context)
-          end
-
-          def wait_for_service_instance(source_id, source_ref)
-            api = topology_api_client.api_client
-
-            count = 0
-            timeout_count = POLL_TIMEOUT / SLEEP_POLL
-
-            header_params = { 'Accept' => api.select_header_accept(['application/json']) }
-            query_params = { :'source_id' => source_id, :'source_ref' => source_ref }
-            return_type = 'ServiceInstancesCollection'
-
-            service_instance = nil
-            loop do
-              data, _status_code, _headers = api.call_api(:GET, "/service_instances",
-                                                          :header_params => header_params,
-                                                          :query_params  => query_params,
-                                                          :auth_names    => ['UserSecurity'],
-                                                          :return_type   => return_type)
-
-              service_instance = data.data&.first if data.meta.count > 0
-              break if service_instance.present?
-
-              break if (count += 1) >= timeout_count
-
-              sleep(SLEEP_POLL) # seconds
-            end
-
-            if service_instance.nil?
-              logger.error("Failed to find service_instance by source_id [#{source_id}] source_ref [#{source_ref}]")
-            end
-
-            service_instance
+            logger.info("ServiceOffering#order: Task(id: #{task_id}): Ordering ServiceOffering(id: #{service_offering.id}, source_ref: #{service_offering.source_ref})...Task updated")
+          rescue StandardError => err
+            logger.error("ServiceOffering#order: Task(id: #{task_id}), ServiceOffering(id: #{service_offering&.id} source_ref: #{service_offering&.source_ref}): Ordering error: #{err.cause} #{err}\n#{err.backtrace.join("\n")}")
+            err_context = {:error => err.to_s}
+            err_context = err_context.merge(context) if context.present?
+            update_task(task_id, :state => "completed", :status => "error", :context => err_context)
           end
 
           def ansible_tower_client(source_id, task_id, identity)
