@@ -15,11 +15,11 @@ gem "prometheus_exporter", "~> 0.4.5"
 gem "rake", ">= 12.3.3"
 gem "rest-client", "~>2.0"
 
-gem "receptor_controller-client", :git => "https://github.com/RedHatInsights/receptor_controller-client-ruby", :branch => "master"
+gem "receptor_controller-client", "~> 0.0.2"
 gem "sources-api-client", "~> 3.0"
 gem "topological_inventory-api-client", "~> 3.0"
 gem "topological_inventory-ingress_api-client", "~> 1.0.1"
-gem "topological_inventory-providers-common", "~> 1.0.7"
+gem "topological_inventory-providers-common", "~> 1.0.9"
 group :development, :test do
   gem "rspec"
   gem 'rubocop', "~>0.69.0"
